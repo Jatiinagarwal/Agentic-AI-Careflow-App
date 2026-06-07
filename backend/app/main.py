@@ -9,27 +9,49 @@ from app.agents.compliance_audit_agent import ComplianceAuditAgent
 from app.agents.task_orchestration_agent import TaskOrchestrationAgent
 from app.config import get_settings
 from app.database import SessionLocal, get_db, init_db
-from app.models import GeneratedOutput, Task, Visit
+from app.models import CommunicationDraft, GeneratedOutput, Task, Visit
 from app.schemas import (
     ActionExecutionRequest,
     ActionExecutionResponse,
     AgentRunRequest,
     AgentRunResponse,
+    AllergyCreate,
+    AllergyOut,
+    AppointmentCreate,
+    AppointmentOut,
     ApprovalRequest,
     ApprovalResponse,
     AuditLogOut,
+    CareGapCreate,
+    CareGapOut,
+    CommunicationOut,
+    ConditionCreate,
+    ConditionOut,
     GeneratedWorkflowOutput,
+    LabCreate,
+    LabOut,
+    MedicationCreate,
+    MedicationOut,
     MetricOut,
+    PatientCreate,
     PatientHistoryOut,
     PatientOut,
+    PatientRecordOut,
+    PatientSummaryOut,
+    PatientUpdate,
+    PreviousVisitCreate,
+    PreviousVisitOut,
+    TaskCreate,
+    TaskOut,
+    TimelineEventOut,
     VisitOut,
     VisitStartRequest,
 )
 from app.seed_data import seed_database
-from app.services import audit_service, patient_service, task_service, visit_service
+from app.services import audit_service, communication_service, dashboard_service, medical_record_service, patient_service, visit_service
 
 settings = get_settings()
-app = FastAPI(title="CareFlow MD API", version="1.0.0")
+app = FastAPI(title="CareFlow MD API", version="1.1.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -64,9 +86,21 @@ def health() -> dict[str, str]:
     return {"status": "ok", "app": settings.app_name, "environment": settings.environment}
 
 
+@app.get("/patients/search", response_model=list[PatientOut])
+def search_patients(query: str = "", db: Session = Depends(get_db)):
+    return patient_service.search_patients(db, query)
+
+
 @app.get("/patients", response_model=list[PatientOut])
 def get_patients(db: Session = Depends(get_db)):
     return patient_service.list_patients(db)
+
+
+@app.post("/patients", response_model=PatientOut)
+def create_patient(payload: PatientCreate, db: Session = Depends(get_db)):
+    patient = patient_service.create_patient(db, payload)
+    audit_service.log_event(db, None, "clinic_staff", "patient_created", {"patient_id": patient.id}, patient_id=patient.id)
+    return patient
 
 
 @app.get("/patients/{patient_id}", response_model=PatientOut)
@@ -77,13 +111,146 @@ def get_patient(patient_id: int, db: Session = Depends(get_db)):
     return patient
 
 
+@app.put("/patients/{patient_id}", response_model=PatientOut)
+def update_patient(patient_id: int, payload: PatientUpdate, db: Session = Depends(get_db)):
+    patient = patient_service.get_patient(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    updated = patient_service.update_patient(db, patient, payload)
+    audit_service.log_event(db, None, "clinic_staff", "patient_updated", {"patient_id": patient_id}, patient_id=patient_id)
+    return updated
+
+
 @app.get("/patients/{patient_id}/history", response_model=PatientHistoryOut)
 def get_patient_history(patient_id: int, db: Session = Depends(get_db)):
     try:
-        history = patient_service.get_patient_history(db, patient_id)
-        return history
+        return patient_service.get_patient_history(db, patient_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/patients/{patient_id}/record", response_model=PatientRecordOut)
+def get_patient_record(patient_id: int, db: Session = Depends(get_db)):
+    try:
+        return patient_service.get_patient_record(db, patient_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/patients/{patient_id}/timeline", response_model=list[TimelineEventOut])
+def get_patient_timeline(patient_id: int, db: Session = Depends(get_db)):
+    try:
+        return patient_service.get_patient_timeline(db, patient_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/patients/{patient_id}/conditions", response_model=ConditionOut)
+def add_condition(patient_id: int, payload: ConditionCreate, db: Session = Depends(get_db)):
+    try:
+        record = medical_record_service.add_condition(db, patient_id, payload)
+        audit_service.log_event(db, None, "clinic_staff", "condition_added", {"name": record.name}, patient_id=patient_id)
+        return record
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/patients/{patient_id}/allergies", response_model=AllergyOut)
+def add_allergy(patient_id: int, payload: AllergyCreate, db: Session = Depends(get_db)):
+    try:
+        record = medical_record_service.add_allergy(db, patient_id, payload)
+        audit_service.log_event(db, None, "clinic_staff", "allergy_added", {"allergen": record.allergen}, patient_id=patient_id)
+        return record
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/patients/{patient_id}/medications", response_model=MedicationOut)
+def add_medication(patient_id: int, payload: MedicationCreate, db: Session = Depends(get_db)):
+    try:
+        record = medical_record_service.add_medication(db, patient_id, payload)
+        audit_service.log_event(db, None, "clinic_staff", "medication_added", {"name": record.name}, patient_id=patient_id)
+        return record
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/patients/{patient_id}/labs", response_model=LabOut)
+def add_lab(patient_id: int, payload: LabCreate, db: Session = Depends(get_db)):
+    try:
+        record = medical_record_service.add_lab(db, patient_id, payload)
+        audit_service.log_event(db, None, "clinic_staff", "lab_added", {"name": record.name, "value": record.value}, patient_id=patient_id)
+        return record
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/patients/{patient_id}/visits", response_model=PreviousVisitOut)
+def add_previous_visit(patient_id: int, payload: PreviousVisitCreate, db: Session = Depends(get_db)):
+    try:
+        record = medical_record_service.add_previous_visit(db, patient_id, payload)
+        audit_service.log_event(db, None, "clinic_staff", "previous_visit_added", {"visit_type": record.visit_type}, patient_id=patient_id)
+        return record
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/patients/{patient_id}/care-gaps", response_model=CareGapOut)
+def add_care_gap(patient_id: int, payload: CareGapCreate, db: Session = Depends(get_db)):
+    try:
+        record = medical_record_service.add_care_gap(db, patient_id, payload)
+        audit_service.log_event(db, None, "clinic_staff", "manual_care_gap_added", {"gap": record.gap}, patient_id=patient_id)
+        return record
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/patients/{patient_id}/tasks", response_model=TaskOut)
+def add_task(patient_id: int, payload: TaskCreate, db: Session = Depends(get_db)):
+    try:
+        record = medical_record_service.add_task(db, patient_id, payload)
+        audit_service.log_event(db, None, "clinic_staff", "task_added", {"title": record.title}, patient_id=patient_id)
+        return record
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.post("/patients/{patient_id}/appointments", response_model=AppointmentOut)
+def add_appointment(patient_id: int, payload: AppointmentCreate, db: Session = Depends(get_db)):
+    try:
+        record = medical_record_service.add_appointment(db, patient_id, payload)
+        audit_service.log_event(db, None, "clinic_staff", "appointment_added", {"reason": record.reason}, patient_id=patient_id)
+        return record
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/patients/{patient_id}/communications", response_model=list[CommunicationOut])
+def get_patient_communications(patient_id: int, db: Session = Depends(get_db)):
+    patient = patient_service.get_patient(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return communication_service.list_patient_communications(db, patient_id)
+
+
+@app.post("/communications/{communication_id}/mock-send", response_model=CommunicationOut)
+def mock_send_communication(communication_id: int, db: Session = Depends(get_db)):
+    communication = communication_service.get_communication(db, communication_id)
+    if not communication:
+        raise HTTPException(status_code=404, detail="Communication draft not found")
+    if communication.status not in {"Queued", "Approved"}:
+        raise HTTPException(status_code=400, detail="Only queued or approved simulated emails can be mock sent")
+    updated = communication_service.set_status(db, communication, "Mock Sent")
+    audit_service.log_event(db, communication.visit_id, "clinic_staff", "mock_email_sent", {"communication_id": communication_id}, patient_id=communication.patient_id)
+    return updated
+
+
+@app.get("/patients/{patient_id}/audit", response_model=list[AuditLogOut])
+def get_patient_audit(patient_id: int, db: Session = Depends(get_db)):
+    patient = patient_service.get_patient(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return audit_service.get_patient_audit_logs(db, patient_id)
 
 
 @app.post("/visits/start", response_model=VisitOut)
@@ -122,29 +289,18 @@ def approve_outputs(payload: ApprovalRequest, db: Session = Depends(get_db)):
         "medication_instructions": payload.approve_medication_instructions,
     }
     compliance = compliance_agent.post_approval_check(approval)
-    generated.doctor_approval = {
-        **approval,
-        "doctor_name": payload.doctor_name,
-        "status": compliance["approval_status"],
-    }
+    generated.doctor_approval = {**approval, "doctor_name": payload.doctor_name, "status": compliance["approval_status"]}
     generated.approved = compliance["approval_status"] == "approved_for_simulated_execution"
     visit.status = "approved" if generated.approved else "approval_incomplete"
+    if generated.approved:
+        draft = db.query(CommunicationDraft).filter(CommunicationDraft.visit_id == visit.id).first()
+        if draft:
+            communication_service.set_status(db, draft, "Approved")
     db.commit()
 
-    audit_service.log_event(
-        db,
-        payload.visit_id,
-        payload.doctor_name,
-        "doctor_approval_recorded",
-        {"approval": generated.doctor_approval, "compliance": compliance},
-    )
+    audit_service.log_event(db, payload.visit_id, payload.doctor_name, "doctor_approval_recorded", {"approval": generated.doctor_approval, "compliance": compliance})
 
-    return {
-        "visit_id": payload.visit_id,
-        "approved": generated.approved,
-        "approval_status": generated.doctor_approval,
-        "message": "Doctor approval recorded. Simulated actions may now run." if generated.approved else "Approval incomplete. Actions remain blocked.",
-    }
+    return {"visit_id": payload.visit_id, "approved": generated.approved, "approval_status": generated.doctor_approval, "message": "Doctor approval recorded. Simulated actions may now run." if generated.approved else "Approval incomplete. Actions remain blocked."}
 
 
 @app.post("/actions/execute", response_model=ActionExecutionResponse)
@@ -157,11 +313,11 @@ def execute_actions(payload: ActionExecutionRequest, db: Session = Depends(get_d
         raise HTTPException(status_code=400, detail="Doctor approval required before executing simulated actions")
 
     result = task_agent.execute(db, visit, generated)
+    communication_service.queue_for_visit(db, visit.id)
     compliance = compliance_agent.post_execution_check()
     generated.executed = True
     visit.status = "completed"
 
-    # Mark task-orchestration agent as completed in the visible timeline.
     updated_steps = []
     for step in generated.agent_steps:
         if step.get("name") == "Task Orchestration Agent":
@@ -174,36 +330,20 @@ def execute_actions(payload: ActionExecutionRequest, db: Session = Depends(get_d
     audit_service.log_event(db, payload.visit_id, "Task Orchestration Agent", "simulated_actions_executed", result)
     audit_service.log_event(db, payload.visit_id, "Compliance & Audit Agent", "post_execution_check", compliance)
 
-    return {
-        "visit_id": payload.visit_id,
-        "executed": True,
-        "action_log": result["action_log"],
-        "task_statuses": result["task_statuses"],
-        "safety_status": compliance["safety_status"],
-        "message": "Approved simulated care coordination actions completed with audit trail.",
-    }
+    return {"visit_id": payload.visit_id, "executed": True, "action_log": result["action_log"], "task_statuses": result["task_statuses"], "safety_status": compliance["safety_status"], "message": "Approved simulated care coordination actions completed with audit trail."}
 
 
 @app.get("/dashboard/metrics", response_model=MetricOut)
 def dashboard_metrics(db: Session = Depends(get_db)):
-    generated_outputs = db.query(GeneratedOutput).all()
-    completed_workflows = len([output for output in generated_outputs if output.executed])
-    drafts_awaiting_approval = len([output for output in generated_outputs if not output.approved])
-    care_gaps_detected = sum(len(output.care_gaps or []) for output in generated_outputs)
-    tasks_created = db.query(Task).count()
-    emails_queued = len([output for output in generated_outputs if output.executed and output.patient_email_draft])
-    denominator = completed_workflows if completed_workflows else 1
+    return dashboard_service.metrics(db)
 
-    return {
-        "documentation_time_saved_minutes": len(generated_outputs) * 18,
-        "care_gaps_detected": care_gaps_detected,
-        "follow_up_tasks_created": tasks_created,
-        "drafts_awaiting_approval": drafts_awaiting_approval,
-        "simulated_patient_communication_rate": int((emails_queued / denominator) * 100),
-        "reduced_missed_follow_up_risk": "High impact" if care_gaps_detected >= 4 else "Pending workflow run",
-        "doctor_productivity_impact": "Estimated 18 minutes saved per completed visit workflow",
-        "completed_workflows": completed_workflows,
-    }
+
+@app.get("/dashboard/patient-summary/{patient_id}", response_model=PatientSummaryOut)
+def dashboard_patient_summary(patient_id: int, db: Session = Depends(get_db)):
+    patient = patient_service.get_patient(db, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return dashboard_service.patient_summary(db, patient_id)
 
 
 @app.get("/audit/{visit_id}", response_model=list[AuditLogOut])

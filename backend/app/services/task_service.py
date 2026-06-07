@@ -11,6 +11,7 @@ def create_tasks_from_proposals(db: Session, visit: Visit, generated: GeneratedO
 
     for proposal in generated.proposed_tasks:
         task = Task(
+            patient_id=visit.patient_id,
             visit_id=visit.id,
             task_type=proposal.get("task_type", "follow_up"),
             title=proposal.get("title", "Follow-up task"),
@@ -29,12 +30,6 @@ def create_tasks_from_proposals(db: Session, visit: Visit, generated: GeneratedO
 
 def task_statuses(tasks: list[Task]) -> list[dict]:
     return [
-        {
-            "id": task.id,
-            "task_type": task.task_type,
-            "title": task.title,
-            "owner": task.owner,
-            "status": task.status,
-        }
+        {"id": task.id, "task_type": task.task_type, "title": task.title, "owner": task.owner, "status": task.status}
         for task in tasks
     ]

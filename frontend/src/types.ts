@@ -1,10 +1,51 @@
 export type Patient = {
   id: number;
   name: string;
+  first_name: string;
+  last_name: string;
+  date_of_birth: string;
   age: number;
   gender: string;
+  phone: string;
+  email: string;
+  address: string;
+  emergency_contact_name: string;
+  emergency_contact_phone: string;
+  primary_physician: string;
+  preferred_language: string;
+  consent_for_mock_email: boolean;
+  risk_level: string;
+  status: string;
   conditions: string[];
   risk_factors: string[];
+  created_at?: string;
+};
+
+export type PatientCreate = Partial<Patient> & {
+  first_name: string;
+  last_name: string;
+  age: number;
+  gender: string;
+};
+
+export type ConditionRecord = {
+  id: number;
+  patient_id: number;
+  name: string;
+  status: string;
+  diagnosed_at: string;
+  notes: string;
+  created_at: string;
+};
+
+export type Allergy = {
+  id: number;
+  patient_id: number;
+  allergen: string;
+  reaction: string;
+  severity: string;
+  notes: string;
+  created_at: string;
 };
 
 export type Medication = {
@@ -32,11 +73,82 @@ export type PreviousVisit = {
   plan: string;
 };
 
+export type CareGapRecord = {
+  id: number;
+  patient_id: number;
+  visit_id?: number | null;
+  gap: string;
+  priority: string;
+  evidence: string;
+  recommended_follow_up_action: string;
+  status: string;
+  created_at: string;
+};
+
+export type CommunicationDraft = {
+  id: number;
+  patient_id: number;
+  visit_id: number | null;
+  subject: string;
+  body: string;
+  instruction_draft: string;
+  follow_up_summary: string;
+  status: string;
+  safety_label: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Task = {
+  id: number;
+  patient_id: number | null;
+  visit_id: number | null;
+  task_type: string;
+  title: string;
+  description: string;
+  owner: string;
+  status: string;
+  created_at: string;
+};
+
+export type Appointment = {
+  id: number;
+  patient_id: number;
+  appointment_date: string;
+  reason: string;
+  status: string;
+  notes: string;
+  created_at: string;
+};
+
+export type TimelineEvent = {
+  id: string;
+  date: string;
+  type: string;
+  title: string;
+  description: string;
+  status: string;
+};
+
 export type PatientHistory = {
   patient: Patient;
   medications: Medication[];
   labs: Lab[];
   previous_visits: PreviousVisit[];
+};
+
+export type PatientRecord = {
+  patient: Patient;
+  conditions: ConditionRecord[];
+  allergies: Allergy[];
+  medications: Medication[];
+  labs: Lab[];
+  previous_visits: PreviousVisit[];
+  care_gaps: CareGapRecord[];
+  communications: CommunicationDraft[];
+  tasks: Task[];
+  appointments: Appointment[];
+  audit_logs: AuditLog[];
 };
 
 export type VisitInputState = {
@@ -133,10 +245,28 @@ export type MetricOut = {
   reduced_missed_follow_up_risk: string;
   doctor_productivity_impact: string;
   completed_workflows: number;
+  total_active_patients: number;
+  patients_with_overdue_care_gaps: number;
+  emails_queued: number;
+  mock_emails_sent: number;
+  follow_up_tasks_open: number;
+  actions_completed_after_approval: number;
+};
+
+export type PatientSummary = {
+  patient_id: number;
+  active_conditions: number;
+  open_care_gaps: number;
+  open_tasks: number;
+  queued_emails: number;
+  mock_sent_emails: number;
+  latest_visit_status: string;
+  risk_level: string;
 };
 
 export type AuditLog = {
   id: number;
+  patient_id: number | null;
   visit_id: number | null;
   actor: string;
   event_type: string;

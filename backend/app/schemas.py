@@ -3,46 +3,195 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 
-class PatientOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+class PatientBase(BaseModel):
+    first_name: str = ""
+    last_name: str = ""
+    name: str = ""
+    date_of_birth: str = ""
+    age: int = 0
+    gender: str = ""
+    phone: str = ""
+    email: str = ""
+    address: str = ""
+    emergency_contact_name: str = ""
+    emergency_contact_phone: str = ""
+    primary_physician: str = "Dr. Sharma"
+    preferred_language: str = "English"
+    consent_for_mock_email: bool = True
+    risk_level: str = "Moderate"
+    status: str = "Active"
+    conditions: list[str] = Field(default_factory=list)
+    risk_factors: list[str] = Field(default_factory=list)
 
-    id: int
-    name: str
+
+class PatientCreate(PatientBase):
+    first_name: str
+    last_name: str
     age: int
     gender: str
-    conditions: list[str]
-    risk_factors: list[str]
 
 
-class MedicationOut(BaseModel):
+class PatientUpdate(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
+    name: str | None = None
+    date_of_birth: str | None = None
+    age: int | None = None
+    gender: str | None = None
+    phone: str | None = None
+    email: str | None = None
+    address: str | None = None
+    emergency_contact_name: str | None = None
+    emergency_contact_phone: str | None = None
+    primary_physician: str | None = None
+    preferred_language: str | None = None
+    consent_for_mock_email: bool | None = None
+    risk_level: str | None = None
+    status: str | None = None
+    conditions: list[str] | None = None
+    risk_factors: list[str] | None = None
+
+
+class PatientOut(PatientBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    created_at: datetime | None = None
+
+
+class ConditionCreate(BaseModel):
     name: str
-    dose: str
-    frequency: str
-    notes: str
+    status: str = "Active"
+    diagnosed_at: str = ""
+    notes: str = ""
 
 
-class LabOut(BaseModel):
+class ConditionOut(ConditionCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    patient_id: int
+    created_at: datetime
+
+
+class AllergyCreate(BaseModel):
+    allergen: str
+    reaction: str = ""
+    severity: str = "Unknown"
+    notes: str = ""
+
+
+class AllergyOut(AllergyCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    patient_id: int
+    created_at: datetime
+
+
+class MedicationCreate(BaseModel):
+    name: str
+    dose: str = ""
+    frequency: str = ""
+    notes: str = ""
+
+
+class MedicationOut(MedicationCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+class LabCreate(BaseModel):
     name: str
     value: str
-    unit: str
+    unit: str = ""
     collected_at: str
-    status: str
+    status: str = "available"
 
 
-class PreviousVisitOut(BaseModel):
+class LabOut(LabCreate):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+
+
+class PreviousVisitCreate(BaseModel):
     date: str
-    visit_type: str
+    visit_type: str = "Follow-up"
     summary: str
-    plan: str
+    plan: str = ""
+
+
+class PreviousVisitOut(PreviousVisitCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+class CareGapCreate(BaseModel):
+    gap: str
+    priority: str = "Medium"
+    evidence: str = ""
+    recommended_follow_up_action: str = ""
+    status: str = "Open"
+
+
+class CareGapOut(CareGapCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    patient_id: int
+    visit_id: int | None = None
+    created_at: datetime
+
+
+class TaskCreate(BaseModel):
+    task_type: str = "follow_up"
+    title: str
+    description: str = ""
+    owner: str = "Clinic team"
+    status: str = "created"
+
+
+class TaskOut(TaskCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    patient_id: int | None = None
+    visit_id: int | None = None
+    created_at: datetime
+
+
+class AppointmentCreate(BaseModel):
+    appointment_date: str
+    reason: str = "Follow-up"
+    status: str = "Scheduled"
+    notes: str = ""
+
+
+class AppointmentOut(AppointmentCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    patient_id: int
+    created_at: datetime
+
+
+class CommunicationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    patient_id: int
+    visit_id: int | None = None
+    subject: str
+    body: str
+    instruction_draft: str
+    follow_up_summary: str
+    status: str
+    safety_label: str
+    created_at: datetime
+    updated_at: datetime
 
 
 class PatientHistoryOut(BaseModel):
@@ -50,6 +199,40 @@ class PatientHistoryOut(BaseModel):
     medications: list[MedicationOut]
     labs: list[LabOut]
     previous_visits: list[PreviousVisitOut]
+
+
+class PatientRecordOut(BaseModel):
+    patient: PatientOut
+    conditions: list[ConditionOut]
+    allergies: list[AllergyOut]
+    medications: list[MedicationOut]
+    labs: list[LabOut]
+    previous_visits: list[PreviousVisitOut]
+    care_gaps: list[CareGapOut]
+    communications: list[CommunicationOut]
+    tasks: list[TaskOut]
+    appointments: list[AppointmentOut]
+    audit_logs: list[dict[str, Any]]
+
+
+class TimelineEventOut(BaseModel):
+    id: str
+    date: str
+    type: str
+    title: str
+    description: str
+    status: str = ""
+
+
+class PatientSummaryOut(BaseModel):
+    patient_id: int
+    active_conditions: int
+    open_care_gaps: int
+    open_tasks: int
+    queued_emails: int
+    mock_sent_emails: int
+    latest_visit_status: str
+    risk_level: str
 
 
 class VisitInput(BaseModel):
@@ -149,12 +332,19 @@ class MetricOut(BaseModel):
     reduced_missed_follow_up_risk: str
     doctor_productivity_impact: str
     completed_workflows: int
+    total_active_patients: int = 0
+    patients_with_overdue_care_gaps: int = 0
+    emails_queued: int = 0
+    mock_emails_sent: int = 0
+    follow_up_tasks_open: int = 0
+    actions_completed_after_approval: int = 0
 
 
 class AuditLogOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    patient_id: int | None = None
     visit_id: int | None
     actor: str
     event_type: str

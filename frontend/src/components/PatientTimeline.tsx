@@ -18,11 +18,10 @@ export default function PatientTimeline({ history }: Props) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="section-title">Patient timeline</p>
-          <h2 className="mt-2 text-2xl font-bold text-slate-950">Fragmented history review</h2>
+          <h2 className="mt-2 text-2xl font-bold text-slate-950">Longitudinal history snapshot</h2>
+          <p className="mt-2 text-sm text-slate-600">{history.patient.primary_physician} • {history.patient.preferred_language}</p>
         </div>
-        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">
-          Prior follow-up missed
-        </span>
+        <span className="rounded-full bg-amber-50 px-3 py-1 text-xs font-semibold text-amber-700">{history.patient.status}</span>
       </div>
 
       <div className="mt-6 grid gap-4 lg:grid-cols-2">
@@ -58,13 +57,9 @@ export default function PatientTimeline({ history }: Props) {
               <div key={lab.id} className="rounded-2xl border border-slate-200 bg-white p-3">
                 <div className="flex items-center justify-between gap-3">
                   <p className="font-semibold text-slate-900">{lab.name}</p>
-                  <p className="text-sm font-bold text-slate-950">
-                    {lab.value} {lab.unit}
-                  </p>
+                  <p className="text-sm font-bold text-slate-950">{lab.value} {lab.unit}</p>
                 </div>
-                <p className="mt-1 text-xs text-slate-500">
-                  {lab.collected_at} • {lab.status}
-                </p>
+                <p className="mt-1 text-xs text-slate-500">{lab.collected_at} • {lab.status}</p>
               </div>
             ))}
           </div>
@@ -76,9 +71,7 @@ export default function PatientTimeline({ history }: Props) {
             {history.medications.map((medication) => (
               <div key={medication.id} className="rounded-2xl border border-slate-200 bg-white p-3">
                 <p className="font-semibold text-slate-900">{medication.name}</p>
-                <p className="text-sm text-slate-600">
-                  {medication.dose} • {medication.frequency}
-                </p>
+                <p className="text-sm text-slate-600">{medication.dose} • {medication.frequency}</p>
               </div>
             ))}
           </div>

@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from './api';
 import ActionPanel from './components/ActionPanel';
+import AddMedicalRecordModal from './components/AddMedicalRecordModal';
 import AgentTimeline from './components/AgentTimeline';
 import ApprovalPanel from './components/ApprovalPanel';
 import Dashboard from './components/Dashboard';
 import OutputTabs from './components/OutputTabs';
+import PatientManagement from './components/PatientManagement';
+import PatientRecordTabs from './components/PatientRecordTabs';
+import PatientSearchBar from './components/PatientSearchBar';
 import PatientSelector from './components/PatientSelector';
 import PatientTimeline from './components/PatientTimeline';
 import VisitInput from './components/VisitInput';
@@ -16,7 +20,10 @@ import type {
   GeneratedWorkflowOutput,
   MetricOut,
   Patient,
+  PatientCreate,
   PatientHistory,
+  PatientRecord,
+  TimelineEvent,
   VisitInputState,
 } from './types';
 
@@ -26,8 +33,7 @@ const defaultVisitInput: VisitInputState = {
   vitals: 'BP 154/94, HR 82, BMI 29',
   doctor_notes: 'Patient missed last HbA1c test and reports irregular medication routine during travel.',
   assessment_notes: 'Doctor wants diabetes and blood pressure follow-up; no autonomous diagnosis requested.',
-  suggested_plan:
-    'Discuss medication adherence, order HbA1c and kidney function labs, schedule BP follow-up, reinforce lifestyle counseling.',
+  suggested_plan: 'Discuss medication adherence, order HbA1c and kidney function labs, schedule BP follow-up, reinforce lifestyle counseling.',
 };
 
 const workflowStepNames = [
@@ -52,6 +58,8 @@ export default function App() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
   const [history, setHistory] = useState<PatientHistory | null>(null);
+  const [record, setRecord] = useState<PatientRecord | null>(null);
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [visitInput, setVisitInput] = useState<VisitInputState>(defaultVisitInput);
   const [metrics, setMetrics] = useState<MetricOut | null>(null);
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>(initialSteps());
@@ -63,19 +71,41 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [query, setQuery] = useState('');
+  const [addPatientOpen, setAddPatientOpen] = useState(false);
+  const [addRecordOpen, setAddRecordOpen] = useState(false);
 
   const selectedPatientId = selectedPatient?.id ?? null;
+
+  async function refreshPatients(nextQuery = query) {
+    const patientList = nextQuery.trim() ? await api.searchPatients(nextQuery.trim()) : await api.getPatients();
+    setPatients(patientList);
+    return patientList;
+  }
+
+  async function refreshSelectedPatient(patientId: number) {
+    const [patientHistory, patientRecord, patientTimeline] = await Promise.all([
+      api.getPatientHistory(patientId),
+      api.getPatientRecord(patientId),
+      api.getPatientTimeline(patientId),
+    ]);
+    setHistory(patientHistory);
+    setRecord(patientRecord);
+    setTimeline(patientTimeline);
+  }
+
+  async function refreshMetrics() {
+    const metricData = await api.getMetrics();
+    setMetrics(metricData);
+  }
 
   useEffect(() => {
     async function boot() {
       try {
-        const [patientList, metricData] = await Promise.all([api.getPatients(), api.getMetrics()]);
-        setPatients(patientList);
-        setMetrics(metricData);
+        const [patientList] = await Promise.all([refreshPatients(''), refreshMetrics()]);
         if (patientList.length > 0) {
           setSelectedPatient(patientList[0]);
-          const patientHistory = await api.getPatientHistory(patientList[0].id);
-          setHistory(patientHistory);
+          await refreshSelectedPatient(patientList[0].id);
         }
       } catch (bootError) {
         setError(bootError instanceof Error ? bootError.message : 'Unable to load app data. Is the backend running?');
@@ -83,6 +113,16 @@ export default function App() {
     }
     void boot();
   }, []);
+
+  async function handleSearchChange(nextQuery: string) {
+    setQuery(nextQuery);
+    setError(null);
+    try {
+      await refreshPatients(nextQuery);
+    } catch (searchError) {
+      setError(searchError instanceof Error ? searchError.message : 'Patient search failed.');
+    }
+  }
 
   async function handleSelectPatient(patient: Patient) {
     setSelectedPatient(patient);
@@ -93,11 +133,41 @@ export default function App() {
     setAgentSteps(initialSteps());
     setError(null);
     try {
-      const patientHistory = await api.getPatientHistory(patient.id);
-      setHistory(patientHistory);
+      await refreshSelectedPatient(patient.id);
     } catch (selectError) {
       setError(selectError instanceof Error ? selectError.message : 'Unable to load patient history.');
     }
+  }
+
+  async function handleCreatePatient(patient: PatientCreate) {
+    const created = await api.createPatient(patient);
+    const patientList = await refreshPatients('');
+    setQuery('');
+    setSelectedPatient(created);
+    await refreshSelectedPatient(created.id);
+    if (!patientList.some((item) => item.id === created.id)) {
+      setPatients([created, ...patientList]);
+    }
+    await refreshMetrics();
+  }
+
+  async function handleAddMedicalRecord(type: string, payload: Record<string, string>) {
+    if (!selectedPatient) return;
+    if (type === 'condition') await api.addCondition(selectedPatient.id, payload as { name: string; status?: string; diagnosed_at?: string; notes?: string });
+    if (type === 'allergy') await api.addAllergy(selectedPatient.id, payload as { allergen: string; reaction?: string; severity?: string; notes?: string });
+    if (type === 'medication') await api.addMedication(selectedPatient.id, payload as { name: string; dose?: string; frequency?: string; notes?: string });
+    if (type === 'lab') await api.addLab(selectedPatient.id, payload as { name: string; value: string; unit?: string; collected_at: string; status?: string });
+    if (type === 'visit') await api.addPreviousVisit(selectedPatient.id, payload as { date: string; visit_type?: string; summary: string; plan?: string });
+    if (type === 'task') await api.addTask(selectedPatient.id, payload as { title: string; task_type?: string; description?: string; owner?: string; status?: string });
+    if (type === 'care_gap') await api.addCareGap(selectedPatient.id, payload as { gap: string; priority?: string; evidence?: string; recommended_follow_up_action?: string; status?: string });
+    if (type === 'appointment') await api.addAppointment(selectedPatient.id, payload as { appointment_date: string; reason?: string; status?: string; notes?: string });
+    await Promise.all([refreshSelectedPatient(selectedPatient.id), refreshMetrics(), refreshPatients(query)]);
+  }
+
+  async function handleMockSend(communicationId: number) {
+    await api.mockSendCommunication(communicationId);
+    if (selectedPatient) await refreshSelectedPatient(selectedPatient.id);
+    await refreshMetrics();
   }
 
   async function animateAgentRun(workflowPromise: Promise<GeneratedWorkflowOutput>) {
@@ -141,8 +211,7 @@ export default function App() {
       setOutput(result);
       const logs = await api.getAudit(result.visit_id);
       setAuditLogs(logs);
-      const metricData = await api.getMetrics();
-      setMetrics(metricData);
+      await Promise.all([refreshMetrics(), refreshSelectedPatient(selectedPatient.id)]);
     } catch (runError) {
       setError(runError instanceof Error ? runError.message : 'Agent workflow failed.');
       setAgentSteps(initialSteps());
@@ -170,8 +239,7 @@ export default function App() {
       );
       const logs = await api.getAudit(output.visit_id);
       setAuditLogs(logs);
-      const metricData = await api.getMetrics();
-      setMetrics(metricData);
+      await Promise.all([refreshMetrics(), selectedPatient ? refreshSelectedPatient(selectedPatient.id) : Promise.resolve()]);
     } catch (approvalError) {
       setError(approvalError instanceof Error ? approvalError.message : 'Approval failed.');
     } finally {
@@ -192,21 +260,14 @@ export default function App() {
       setOutput({ ...output, executed: true });
       setAgentSteps((current) =>
         current.map((step) => {
-          if (step.name === 'Task Orchestration Agent') {
-            return { ...step, status: 'completed', detail: 'Mock EHR save, email queue, nurse task, lab reminder, and appointment follow-up completed.' };
-          }
-          if (step.name === 'Compliance & Audit Agent') {
-            return { ...step, status: 'completed', detail: 'Post-execution audit trail recorded.' };
-          }
-          if (step.name === 'Dashboard Update') {
-            return { ...step, status: 'completed', detail: 'Executive impact metrics refreshed.' };
-          }
+          if (step.name === 'Task Orchestration Agent') return { ...step, status: 'completed', detail: 'Mock EHR save, email queue, nurse task, lab reminder, and appointment follow-up completed.' };
+          if (step.name === 'Compliance & Audit Agent') return { ...step, status: 'completed', detail: 'Post-execution audit trail recorded.' };
+          if (step.name === 'Dashboard Update') return { ...step, status: 'completed', detail: 'Executive impact metrics refreshed.' };
           return step;
         }),
       );
-      const [logs, metricData] = await Promise.all([api.getAudit(output.visit_id), api.getMetrics()]);
+      const [logs] = await Promise.all([api.getAudit(output.visit_id), refreshMetrics(), selectedPatient ? refreshSelectedPatient(selectedPatient.id) : Promise.resolve()]);
       setAuditLogs(logs);
-      setMetrics(metricData);
     } catch (executeError) {
       setError(executeError instanceof Error ? executeError.message : 'Action execution failed.');
     } finally {
@@ -228,26 +289,19 @@ export default function App() {
           <strong>Demo safety guardrail:</strong> CareFlow MD uses mock records only. It does not diagnose, prescribe, send real email, or integrate with a real EHR. All generated content is draft and requires doctor approval.
         </section>
 
-        {error && (
-          <section className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-800">
-            {error}
-          </section>
-        )}
+        {error && <section className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-800">{error}</section>}
+
+        <PatientSearchBar query={query} onQueryChange={handleSearchChange} onAddPatient={() => setAddPatientOpen(true)} patients={patients} />
 
         <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
           <div className="space-y-6">
             <PatientSelector patients={patients} selectedPatientId={selectedPatientId} onSelect={handleSelectPatient} />
-            <VisitInput
-              value={visitInput}
-              onChange={setVisitInput}
-              onRun={handleRunAgents}
-              isRunning={isRunning}
-              disabled={!selectedPatient}
-            />
+            <VisitInput value={visitInput} onChange={setVisitInput} onRun={handleRunAgents} isRunning={isRunning} disabled={!selectedPatient} />
             <AgentTimeline steps={agentSteps} />
           </div>
 
           <div className="space-y-6">
+            <PatientRecordTabs record={record} timeline={timeline} onAddRecord={() => setAddRecordOpen(true)} onMockSend={handleMockSend} />
             <PatientTimeline history={history} />
             <OutputTabs output={output} auditLogs={auditLogs} />
             <div className="grid gap-6 lg:grid-cols-2">
@@ -259,23 +313,16 @@ export default function App() {
               <h2 className="mt-2 text-2xl font-bold text-slate-950">Clinic transformation summary</h2>
               <p className="mt-3 text-slate-700">{impactSummary}</p>
               <div className="mt-5 grid gap-3 md:grid-cols-3">
-                <div className="rounded-2xl bg-blue-50 p-4">
-                  <p className="text-sm font-semibold text-blue-700">Reduced missed follow-up risk</p>
-                  <p className="mt-2 text-xl font-bold text-slate-950">{metrics?.reduced_missed_follow_up_risk ?? 'Pending'}</p>
-                </div>
-                <div className="rounded-2xl bg-green-50 p-4">
-                  <p className="text-sm font-semibold text-green-700">Completed workflows</p>
-                  <p className="mt-2 text-xl font-bold text-slate-950">{metrics?.completed_workflows ?? 0}</p>
-                </div>
-                <div className="rounded-2xl bg-purple-50 p-4">
-                  <p className="text-sm font-semibold text-purple-700">Agentic differentiation</p>
-                  <p className="mt-2 text-xl font-bold text-slate-950">Note to workflow</p>
-                </div>
+                <div className="rounded-2xl bg-blue-50 p-4"><p className="text-sm font-semibold text-blue-700">Reduced missed follow-up risk</p><p className="mt-2 text-xl font-bold text-slate-950">{metrics?.reduced_missed_follow_up_risk ?? 'Pending'}</p></div>
+                <div className="rounded-2xl bg-green-50 p-4"><p className="text-sm font-semibold text-green-700">Completed workflows</p><p className="mt-2 text-xl font-bold text-slate-950">{metrics?.completed_workflows ?? 0}</p></div>
+                <div className="rounded-2xl bg-purple-50 p-4"><p className="text-sm font-semibold text-purple-700">Agentic differentiation</p><p className="mt-2 text-xl font-bold text-slate-950">Patient record to workflow</p></div>
               </div>
             </section>
           </div>
         </div>
       </div>
+      <PatientManagement open={addPatientOpen} onClose={() => setAddPatientOpen(false)} onCreate={handleCreatePatient} />
+      <AddMedicalRecordModal open={addRecordOpen} onClose={() => setAddRecordOpen(false)} onAdd={handleAddMedicalRecord} />
     </main>
   );
 }

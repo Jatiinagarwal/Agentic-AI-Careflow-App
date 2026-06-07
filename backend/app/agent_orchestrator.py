@@ -12,18 +12,14 @@ from app.agents.medication_safety_agent import MedicationSafetyAgent
 from app.agents.patient_communication_agent import PatientCommunicationAgent
 from app.agents.patient_context_agent import PatientContextAgent
 from app.agents.task_orchestration_agent import TaskOrchestrationAgent
+from app.models import CareGapRecord
 from app.openai_service import OpenAIService
 from app.schemas import AgentRunRequest
-from app.services import audit_service, patient_service, visit_service
+from app.services import audit_service, communication_service, patient_service, visit_service
 
 
 def _step(name: str, status: str, detail: str) -> dict[str, Any]:
-    return {
-        "name": name,
-        "status": status,
-        "detail": detail,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-    }
+    return {"name": name, "status": status, "detail": detail, "timestamp": datetime.utcnow().isoformat() + "Z"}
 
 
 class AgentOrchestrator:
@@ -55,7 +51,7 @@ class AgentOrchestrator:
         agent_steps: list[dict[str, Any]] = []
 
         context = self.patient_context_agent.run(patient_history, self.openai_service)
-        agent_steps.append(_step(self.patient_context_agent.name, "completed", "Retrieved mock chart and summarized longitudinal context."))
+        agent_steps.append(_step(self.patient_context_agent.name, "completed", "Retrieved full mock patient record and summarized longitudinal context."))
         audit_service.log_event(db, visit.id, "Patient Context Agent", "agent_completed", {"summary_length": len(context["patient_context_summary"])})
 
         soap_note = self.clinical_note_agent.run(context["patient_context_summary"], current_visit, self.openai_service)
@@ -65,12 +61,23 @@ class AgentOrchestrator:
         care_gaps = self.care_gap_agent.run(patient, patient_history["labs"], current_visit)
         agent_steps.append(_step(self.care_gap_agent.name, "completed", f"Identified {len(care_gaps)} care gaps using deterministic mock rules."))
         audit_service.log_event(db, visit.id, "Care Gap Agent", "agent_completed", {"care_gaps_detected": len(care_gaps)})
+        for gap in care_gaps:
+            exists = db.query(CareGapRecord).filter(CareGapRecord.visit_id == visit.id, CareGapRecord.gap == gap.get("gap", "")).first()
+            if not exists:
+                db.add(
+                    CareGapRecord(
+                        patient_id=visit.patient_id,
+                        visit_id=visit.id,
+                        gap=gap.get("gap", "Care gap"),
+                        priority=gap.get("priority", "Medium"),
+                        evidence=gap.get("evidence", ""),
+                        recommended_follow_up_action=gap.get("recommended_follow_up_action", ""),
+                        status="Open",
+                    )
+                )
+        db.commit()
 
-        medication_safety = self.medication_safety_agent.run(
-            patient_history["medications"],
-            patient["conditions"],
-            patient_history["labs"],
-        )
+        medication_safety = self.medication_safety_agent.run(patient_history["medications"], patient["conditions"], patient_history["labs"])
         agent_steps.append(_step(self.medication_safety_agent.name, "completed", f"Flagged {len(medication_safety)} mock medication safety considerations."))
         audit_service.log_event(db, visit.id, "Medication Safety Agent", "agent_completed", {"flags_detected": len(medication_safety)})
 
@@ -91,13 +98,7 @@ class AgentOrchestrator:
         agent_steps.append(_step(self.compliance_audit_agent.name, "completed", compliance["message"]))
         audit_service.log_event(db, visit.id, "Compliance & Audit Agent", "pre_approval_check", compliance)
 
-        doctor_approval = {
-            "soap_note": False,
-            "patient_email": False,
-            "follow_up_tasks": False,
-            "medication_instructions": False,
-            "status": "pending_doctor_review",
-        }
+        doctor_approval = {"soap_note": False, "patient_email": False, "follow_up_tasks": False, "medication_instructions": False, "status": "pending_doctor_review"}
 
         output = {
             "visit_id": visit.id,
@@ -117,5 +118,6 @@ class AgentOrchestrator:
             "doctor_approval": doctor_approval,
         }
         generated = visit_service.save_generated_output(db, visit.id, output)
+        communication_service.upsert_from_generated_output(db, visit, generated)
         audit_service.log_event(db, visit.id, "system", "workflow_draft_generated", {"visit_id": visit.id})
         return visit_service.generated_output_as_response(generated)

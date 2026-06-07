@@ -14,24 +14,25 @@ export default function Dashboard({ metrics }: Props) {
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.35em] text-cyan-200">CareFlow MD</p>
-            <h1 className="mt-4 max-w-4xl text-4xl font-black tracking-tight md:text-6xl">
-              Agentic Clinical Care Coordination System for Doctors
-            </h1>
+            <h1 className="mt-4 max-w-4xl text-4xl font-black tracking-tight md:text-6xl">Agentic Clinical Care Coordination System for Doctors</h1>
             <p className="mt-5 max-w-3xl text-lg text-blue-100">
-              Converts a patient visit into draft documentation, care-gap detection, medication safety support,
-              patient communication, operational tasks, and an auditable doctor approval workflow.
+              Now with patient management, longitudinal medical records, communication queue, task history, and auditable doctor-approved workflows.
             </p>
           </div>
           <div className="rounded-3xl border border-white/20 bg-white/10 p-5 backdrop-blur">
             <p className="text-sm text-blue-100">Safety posture</p>
             <p className="mt-2 text-2xl font-bold">Doctor-in-the-loop</p>
-            <p className="mt-2 max-w-xs text-sm text-blue-100">
-              No autonomous diagnosis. No autonomous prescribing. Mock data only.
-            </p>
+            <p className="mt-2 max-w-xs text-sm text-blue-100">No autonomous diagnosis. No autonomous prescribing. Mock data only.</p>
           </div>
         </div>
         <div className="mt-8 text-slate-950">
           <MetricsCards metrics={metrics} />
+        </div>
+        <div className="mt-6 grid gap-3 md:grid-cols-4">
+          <div className="rounded-2xl bg-white/10 p-4 backdrop-blur"><p className="text-sm text-blue-100">Active patients</p><p className="mt-2 text-2xl font-black">{metrics?.total_active_patients ?? 0}</p></div>
+          <div className="rounded-2xl bg-white/10 p-4 backdrop-blur"><p className="text-sm text-blue-100">Overdue care gaps</p><p className="mt-2 text-2xl font-black">{metrics?.patients_with_overdue_care_gaps ?? 0}</p></div>
+          <div className="rounded-2xl bg-white/10 p-4 backdrop-blur"><p className="text-sm text-blue-100">Emails queued</p><p className="mt-2 text-2xl font-black">{metrics?.emails_queued ?? 0}</p></div>
+          <div className="rounded-2xl bg-white/10 p-4 backdrop-blur"><p className="text-sm text-blue-100">Open tasks</p><p className="mt-2 text-2xl font-black">{metrics?.follow_up_tasks_open ?? 0}</p></div>
         </div>
       </div>
     </section>

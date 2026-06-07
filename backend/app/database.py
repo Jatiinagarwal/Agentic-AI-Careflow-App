@@ -1,7 +1,7 @@
 from collections.abc import Generator
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -13,20 +13,12 @@ class Base(DeclarativeBase):
 
 
 def _ensure_sqlite_directory(database_url: str) -> None:
-    """Create the parent folder for a file-based SQLite DB when needed.
-
-    This keeps local development simple and also prevents Render deploys from
-    failing if DATABASE_URL points to a nested SQLite path such as
-    sqlite:///./data/careflow.db. The default sqlite:///./careflow.db still works.
-    """
     if not database_url.startswith("sqlite"):
         return
-
     url = make_url(database_url)
     database_path = url.database
     if not database_path or database_path == ":memory:":
         return
-
     path = Path(database_path)
     if not path.is_absolute():
         path = Path.cwd() / path
@@ -52,5 +44,14 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     # Import models so SQLAlchemy registers all tables before create_all.
     from app import models  # noqa: F401
+
+    # Hackathon-friendly schema upgrade: if a pre-Phase-9 SQLite DB exists, reset it
+    # because this project uses mock data and seed data is recreated on startup.
+    inspector = inspect(engine)
+    if settings.database_url.startswith("sqlite") and inspector.has_table("patients"):
+        patient_columns = {column["name"] for column in inspector.get_columns("patients")}
+        required_columns = {"email", "risk_level", "status", "preferred_language"}
+        if not required_columns.issubset(patient_columns):
+            Base.metadata.drop_all(bind=engine)
 
     Base.metadata.create_all(bind=engine)

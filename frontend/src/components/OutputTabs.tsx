@@ -157,3 +157,4 @@ export default function OutputTabs({ output, auditLogs }: Props) {
     </section>
   );
 }
+
