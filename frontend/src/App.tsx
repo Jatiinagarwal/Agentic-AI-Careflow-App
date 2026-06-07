@@ -18,6 +18,7 @@ import type {
   ApprovalResponse,
   AuditLog,
   GeneratedWorkflowOutput,
+  EmailSettings,
   MetricOut,
   Patient,
   PatientCreate,
@@ -62,6 +63,7 @@ export default function App() {
   const [timeline, setTimeline] = useState<TimelineEvent[]>([]);
   const [visitInput, setVisitInput] = useState<VisitInputState>(defaultVisitInput);
   const [metrics, setMetrics] = useState<MetricOut | null>(null);
+  const [emailSettings, setEmailSettings] = useState<EmailSettings | null>(null);
   const [agentSteps, setAgentSteps] = useState<AgentStep[]>(initialSteps());
   const [output, setOutput] = useState<GeneratedWorkflowOutput | null>(null);
   const [approval, setApproval] = useState<ApprovalResponse | null>(null);
@@ -71,6 +73,7 @@ export default function App() {
   const [isRunning, setIsRunning] = useState(false);
   const [isApproving, setIsApproving] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [isEmailBusy, setIsEmailBusy] = useState(false);
   const [query, setQuery] = useState('');
   const [addPatientOpen, setAddPatientOpen] = useState(false);
   const [addRecordOpen, setAddRecordOpen] = useState(false);
@@ -99,10 +102,15 @@ export default function App() {
     setMetrics(metricData);
   }
 
+  async function refreshEmailSettings() {
+    const settings = await api.getEmailSettings();
+    setEmailSettings(settings);
+  }
+
   useEffect(() => {
     async function boot() {
       try {
-        const [patientList] = await Promise.all([refreshPatients(''), refreshMetrics()]);
+        const [patientList] = await Promise.all([refreshPatients(''), refreshMetrics(), refreshEmailSettings()]);
         if (patientList.length > 0) {
           setSelectedPatient(patientList[0]);
           await refreshSelectedPatient(patientList[0].id);
@@ -164,10 +172,62 @@ export default function App() {
     await Promise.all([refreshSelectedPatient(selectedPatient.id), refreshMetrics(), refreshPatients(query)]);
   }
 
-  async function handleMockSend(communicationId: number) {
-    await api.mockSendCommunication(communicationId);
+  async function refreshAfterEmailAction() {
     if (selectedPatient) await refreshSelectedPatient(selectedPatient.id);
-    await refreshMetrics();
+    await Promise.all([refreshMetrics(), refreshEmailSettings()]);
+  }
+
+  async function handleSaveCommunication(communicationId: number, payload: { subject: string; body: string; recipient_email: string }) {
+    setIsEmailBusy(true);
+    setError(null);
+    try {
+      await api.updateCommunication(communicationId, payload);
+      await refreshAfterEmailAction();
+    } catch (emailError) {
+      setError(emailError instanceof Error ? emailError.message : 'Unable to save email draft.');
+    } finally {
+      setIsEmailBusy(false);
+    }
+  }
+
+  async function handleApproveCommunication(communicationId: number) {
+    setIsEmailBusy(true);
+    setError(null);
+    try {
+      await api.approveCommunication(communicationId);
+      await refreshAfterEmailAction();
+    } catch (emailError) {
+      setError(emailError instanceof Error ? emailError.message : 'Unable to approve email draft.');
+    } finally {
+      setIsEmailBusy(false);
+    }
+  }
+
+  async function handleSendCommunication(communicationId: number) {
+    setIsEmailBusy(true);
+    setError(null);
+    try {
+      const result = await api.sendCommunication(communicationId);
+      if (result.status === 'Failed') setError(result.error_message || 'Email sending failed.');
+      await refreshAfterEmailAction();
+    } catch (emailError) {
+      setError(emailError instanceof Error ? emailError.message : 'Unable to send email.');
+    } finally {
+      setIsEmailBusy(false);
+    }
+  }
+
+  async function handleCancelCommunication(communicationId: number) {
+    setIsEmailBusy(true);
+    setError(null);
+    try {
+      await api.cancelCommunication(communicationId);
+      await refreshAfterEmailAction();
+    } catch (emailError) {
+      setError(emailError instanceof Error ? emailError.message : 'Unable to cancel email draft.');
+    } finally {
+      setIsEmailBusy(false);
+    }
   }
 
   async function animateAgentRun(workflowPromise: Promise<GeneratedWorkflowOutput>) {
@@ -286,7 +346,7 @@ export default function App() {
         <Dashboard metrics={metrics} />
 
         <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900">
-          <strong>Demo safety guardrail:</strong> CareFlow MD uses mock records only. It does not diagnose, prescribe, send real email, or integrate with a real EHR. All generated content is draft and requires doctor approval.
+          <strong>Demo safety guardrail:</strong> CareFlow MD uses mock records only. It does not diagnose, prescribe, or integrate with a real EHR. Agents draft emails; doctors send emails. Real SMTP is disabled unless explicitly enabled in backend environment variables.
         </section>
 
         {error && <section className="rounded-3xl border border-red-200 bg-red-50 p-5 text-sm font-semibold text-red-800">{error}</section>}
@@ -301,7 +361,17 @@ export default function App() {
           </div>
 
           <div className="space-y-6">
-            <PatientRecordTabs record={record} timeline={timeline} onAddRecord={() => setAddRecordOpen(true)} onMockSend={handleMockSend} />
+            <PatientRecordTabs
+              record={record}
+              timeline={timeline}
+              onAddRecord={() => setAddRecordOpen(true)}
+              emailSettings={emailSettings}
+              isEmailBusy={isEmailBusy}
+              onSaveCommunication={handleSaveCommunication}
+              onApproveCommunication={handleApproveCommunication}
+              onSendCommunication={handleSendCommunication}
+              onCancelCommunication={handleCancelCommunication}
+            />
             <PatientTimeline history={history} />
             <OutputTabs output={output} auditLogs={auditLogs} />
             <div className="grid gap-6 lg:grid-cols-2">

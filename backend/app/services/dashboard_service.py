@@ -12,6 +12,10 @@ def metrics(db: Session) -> dict:
     tasks_created = db.query(Task).count()
     emails_queued = db.query(CommunicationDraft).filter(CommunicationDraft.status == "Queued").count()
     mock_emails_sent = db.query(CommunicationDraft).filter(CommunicationDraft.status == "Mock Sent").count()
+    real_emails_sent = db.query(CommunicationDraft).filter(CommunicationDraft.status == "Sent").count()
+    failed_email_attempts = db.query(CommunicationDraft).filter(CommunicationDraft.status == "Failed").count()
+    email_drafts_pending_approval = db.query(CommunicationDraft).filter(CommunicationDraft.approval_status == "Pending").count()
+    approved_emails_not_sent = db.query(CommunicationDraft).filter(CommunicationDraft.approval_status == "Approved", CommunicationDraft.status.notin_(["Sent", "Mock Sent", "Cancelled"])).count()
     denominator = completed_workflows if completed_workflows else 1
     active_patients = db.query(Patient).filter(Patient.status.in_(["Active", "Follow-up Due", "Labs Overdue", "Drafts Pending Approval"])).count()
     patients_with_overdue = {gap.patient_id for gap in db.query(CareGapRecord).filter(CareGapRecord.status.in_(["Open", "Overdue"])).all()}
@@ -22,7 +26,7 @@ def metrics(db: Session) -> dict:
         "care_gaps_detected": generated_care_gaps + persisted_care_gaps,
         "follow_up_tasks_created": tasks_created,
         "drafts_awaiting_approval": drafts_awaiting_approval,
-        "simulated_patient_communication_rate": int(((emails_queued + mock_emails_sent) / denominator) * 100),
+        "simulated_patient_communication_rate": int(((emails_queued + mock_emails_sent + real_emails_sent) / denominator) * 100),
         "reduced_missed_follow_up_risk": "High impact" if generated_care_gaps + persisted_care_gaps >= 4 else "Pending workflow run",
         "doctor_productivity_impact": "Estimated 18 minutes saved per completed visit workflow",
         "completed_workflows": completed_workflows,
@@ -32,6 +36,10 @@ def metrics(db: Session) -> dict:
         "mock_emails_sent": mock_emails_sent,
         "follow_up_tasks_open": open_tasks,
         "actions_completed_after_approval": actions_completed,
+        "email_drafts_pending_approval": email_drafts_pending_approval,
+        "approved_emails_not_sent": approved_emails_not_sent,
+        "emails_sent_today": real_emails_sent,
+        "failed_email_attempts": failed_email_attempts,
     }
 
 

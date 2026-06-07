@@ -178,6 +178,45 @@ class AppointmentOut(AppointmentCreate):
     created_at: datetime
 
 
+class EmailDraftUpdate(BaseModel):
+    subject: str | None = None
+    body: str | None = None
+    recipient_email: str | None = None
+
+
+class EmailApprovalRequest(BaseModel):
+    doctor_name: str = "Dr. Sharma"
+    approved: bool = True
+
+
+class EmailSendResponse(BaseModel):
+    communication: "CommunicationOut"
+    status: str
+    provider: str
+    provider_message_id: str = ""
+    error_message: str = ""
+    sent_at: datetime | None = None
+    message: str
+
+
+class EmailSettingsResponse(BaseModel):
+    email_enabled: bool
+    smtp_configured: bool
+    smtp_host: str
+    smtp_port: int
+    smtp_from_email: str
+    smtp_from_name: str
+    smtp_use_tls: bool
+    mode: str
+    warning: str
+
+
+class TestEmailRequest(BaseModel):
+    recipient_email: str
+    subject: str = "CareFlow MD SMTP test"
+    body: str = "This is a CareFlow MD test email. Do not use real patient data in hackathon demos."
+
+
 class CommunicationOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -186,9 +225,17 @@ class CommunicationOut(BaseModel):
     visit_id: int | None = None
     subject: str
     body: str
+    recipient_email: str = ""
     instruction_draft: str
     follow_up_summary: str
     status: str
+    approval_status: str = "Pending"
+    approved_by: str = ""
+    approved_at: datetime | None = None
+    sent_at: datetime | None = None
+    provider: str = ""
+    provider_message_id: str = ""
+    error_message: str = ""
     safety_label: str
     created_at: datetime
     updated_at: datetime
@@ -338,6 +385,10 @@ class MetricOut(BaseModel):
     mock_emails_sent: int = 0
     follow_up_tasks_open: int = 0
     actions_completed_after_approval: int = 0
+    email_drafts_pending_approval: int = 0
+    approved_emails_not_sent: int = 0
+    emails_sent_today: int = 0
+    failed_email_attempts: int = 0
 
 
 class AuditLogOut(BaseModel):

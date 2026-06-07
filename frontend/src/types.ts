@@ -91,12 +91,48 @@ export type CommunicationDraft = {
   visit_id: number | null;
   subject: string;
   body: string;
+  recipient_email: string;
   instruction_draft: string;
   follow_up_summary: string;
   status: string;
+  approval_status: string;
+  approved_by: string;
+  approved_at: string | null;
+  sent_at: string | null;
+  provider: string;
+  provider_message_id: string;
+  error_message: string;
   safety_label: string;
   created_at: string;
   updated_at: string;
+};
+
+export type EmailSettings = {
+  email_enabled: boolean;
+  smtp_configured: boolean;
+  smtp_host: string;
+  smtp_port: number;
+  smtp_from_email: string;
+  smtp_from_name: string;
+  smtp_use_tls: boolean;
+  mode: string;
+  warning: string;
+};
+
+export type EmailDraftUpdate = {
+  subject?: string;
+  body?: string;
+  recipient_email?: string;
+};
+
+export type EmailSendResponse = {
+  communication: CommunicationDraft;
+  status: string;
+  provider: string;
+  provider_message_id: string;
+  error_message: string;
+  sent_at: string | null;
+  message: string;
 };
 
 export type Task = {
@@ -251,6 +287,10 @@ export type MetricOut = {
   mock_emails_sent: number;
   follow_up_tasks_open: number;
   actions_completed_after_approval: number;
+  email_drafts_pending_approval?: number;
+  approved_emails_not_sent?: number;
+  emails_sent_today?: number;
+  failed_email_attempts?: number;
 };
 
 export type PatientSummary = {

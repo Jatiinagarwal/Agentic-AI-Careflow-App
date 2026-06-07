@@ -50,8 +50,13 @@ def init_db() -> None:
     inspector = inspect(engine)
     if settings.database_url.startswith("sqlite") and inspector.has_table("patients"):
         patient_columns = {column["name"] for column in inspector.get_columns("patients")}
-        required_columns = {"email", "risk_level", "status", "preferred_language"}
-        if not required_columns.issubset(patient_columns):
+        required_patient_columns = {"email", "risk_level", "status", "preferred_language"}
+        needs_reset = not required_patient_columns.issubset(patient_columns)
+        if inspector.has_table("communication_drafts"):
+            communication_columns = {column["name"] for column in inspector.get_columns("communication_drafts")}
+            required_communication_columns = {"recipient_email", "approval_status", "approved_by", "approved_at", "sent_at", "provider", "provider_message_id", "error_message"}
+            needs_reset = needs_reset or not required_communication_columns.issubset(communication_columns)
+        if needs_reset:
             Base.metadata.drop_all(bind=engine)
 
     Base.metadata.create_all(bind=engine)

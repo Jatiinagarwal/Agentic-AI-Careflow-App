@@ -7,6 +7,9 @@ import type {
   AuditLog,
   CareGapRecord,
   CommunicationDraft,
+  EmailDraftUpdate,
+  EmailSendResponse,
+  EmailSettings,
   ConditionRecord,
   GeneratedWorkflowOutput,
   Lab,
@@ -77,6 +80,18 @@ export const api = {
     request<Task>(`/patients/${patientId}/tasks`, { method: 'POST', body: JSON.stringify(payload) }),
   addAppointment: (patientId: number, payload: { appointment_date: string; reason?: string; status?: string; notes?: string }) =>
     request<Appointment>(`/patients/${patientId}/appointments`, { method: 'POST', body: JSON.stringify(payload) }),
+  getEmailSettings: () => request<EmailSettings>('/settings/email'),
+  getCommunication: (communicationId: number) => request<CommunicationDraft>(`/communications/${communicationId}`),
+  updateCommunication: (communicationId: number, payload: EmailDraftUpdate) =>
+    request<CommunicationDraft>(`/communications/${communicationId}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  approveCommunication: (communicationId: number) =>
+    request<CommunicationDraft>(`/communications/${communicationId}/approve`, { method: 'POST', body: JSON.stringify({ doctor_name: 'Dr. Sharma', approved: true }) }),
+  sendCommunication: (communicationId: number) =>
+    request<EmailSendResponse>(`/communications/${communicationId}/send`, { method: 'POST' }),
+  cancelCommunication: (communicationId: number) =>
+    request<CommunicationDraft>(`/communications/${communicationId}/cancel`, { method: 'POST' }),
+  sendTestEmail: (payload: { recipient_email: string; subject?: string; body?: string }) =>
+    request<EmailSendResponse>('/communications/test-email', { method: 'POST', body: JSON.stringify(payload) }),
   mockSendCommunication: (communicationId: number) =>
     request<CommunicationDraft>(`/communications/${communicationId}/mock-send`, { method: 'POST' }),
   runAgents: (patientId: number, currentVisit: VisitInputState) =>

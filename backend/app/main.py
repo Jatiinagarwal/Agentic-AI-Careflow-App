@@ -25,6 +25,11 @@ from app.schemas import (
     CareGapCreate,
     CareGapOut,
     CommunicationOut,
+    TestEmailRequest,
+    EmailSettingsResponse,
+    EmailSendResponse,
+    EmailDraftUpdate,
+    EmailApprovalRequest,
     ConditionCreate,
     ConditionOut,
     GeneratedWorkflowOutput,
@@ -48,7 +53,7 @@ from app.schemas import (
     VisitStartRequest,
 )
 from app.seed_data import seed_database
-from app.services import audit_service, communication_service, dashboard_service, medical_record_service, patient_service, visit_service
+from app.services import audit_service, communication_service, dashboard_service, email_service, medical_record_service, patient_service, visit_service
 
 settings = get_settings()
 app = FastAPI(title="CareFlow MD API", version="1.1.0")
@@ -233,16 +238,89 @@ def get_patient_communications(patient_id: int, db: Session = Depends(get_db)):
     return communication_service.list_patient_communications(db, patient_id)
 
 
+@app.get("/settings/email", response_model=EmailSettingsResponse)
+def get_email_settings():
+    return email_service.email_settings_safe()
+
+
+@app.get("/communications/{communication_id}", response_model=CommunicationOut)
+def get_communication(communication_id: int, db: Session = Depends(get_db)):
+    communication = communication_service.get_communication(db, communication_id)
+    if not communication:
+        raise HTTPException(status_code=404, detail="Communication draft not found")
+    return communication
+
+
+@app.put("/communications/{communication_id}", response_model=CommunicationOut)
+def update_communication(communication_id: int, payload: EmailDraftUpdate, db: Session = Depends(get_db)):
+    communication = communication_service.get_communication(db, communication_id)
+    if not communication:
+        raise HTTPException(status_code=404, detail="Communication draft not found")
+    try:
+        return communication_service.update_email_draft(db, communication, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/communications/{communication_id}/approve", response_model=CommunicationOut)
+def approve_communication(communication_id: int, payload: EmailApprovalRequest = EmailApprovalRequest(), db: Session = Depends(get_db)):
+    communication = communication_service.get_communication(db, communication_id)
+    if not communication:
+        raise HTTPException(status_code=404, detail="Communication draft not found")
+    try:
+        return communication_service.approve_email_draft(db, communication, payload)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/communications/{communication_id}/send", response_model=EmailSendResponse)
+def send_communication(communication_id: int, db: Session = Depends(get_db)):
+    communication = communication_service.get_communication(db, communication_id)
+    if not communication:
+        raise HTTPException(status_code=404, detail="Communication draft not found")
+    try:
+        updated = communication_service.send_email_draft(db, communication)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "communication": updated,
+        "status": updated.status,
+        "provider": updated.provider,
+        "provider_message_id": updated.provider_message_id,
+        "error_message": updated.error_message,
+        "sent_at": updated.sent_at,
+        "message": "Email sent." if updated.status == "Sent" else "Real email disabled; recorded as Mock Sent." if updated.status == "Mock Sent" else f"Email failed: {updated.error_message}",
+    }
+
+
+@app.post("/communications/{communication_id}/cancel", response_model=CommunicationOut)
+def cancel_communication(communication_id: int, db: Session = Depends(get_db)):
+    communication = communication_service.get_communication(db, communication_id)
+    if not communication:
+        raise HTTPException(status_code=404, detail="Communication draft not found")
+    try:
+        return communication_service.cancel_email_draft(db, communication)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 @app.post("/communications/{communication_id}/mock-send", response_model=CommunicationOut)
 def mock_send_communication(communication_id: int, db: Session = Depends(get_db)):
     communication = communication_service.get_communication(db, communication_id)
     if not communication:
         raise HTTPException(status_code=404, detail="Communication draft not found")
-    if communication.status not in {"Queued", "Approved"}:
-        raise HTTPException(status_code=400, detail="Only queued or approved simulated emails can be mock sent")
-    updated = communication_service.set_status(db, communication, "Mock Sent")
-    audit_service.log_event(db, communication.visit_id, "clinic_staff", "mock_email_sent", {"communication_id": communication_id}, patient_id=communication.patient_id)
-    return updated
+    try:
+        return communication_service.send_email_draft(db, communication)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/communications/test-email")
+def send_test_email(payload: TestEmailRequest, db: Session = Depends(get_db)):
+    result = communication_service.send_test_email(db, payload)
+    if result.get("status") == "Failed":
+        raise HTTPException(status_code=400, detail=result.get("error_message") or result.get("message"))
+    return result
 
 
 @app.get("/patients/{patient_id}/audit", response_model=list[AuditLogOut])
